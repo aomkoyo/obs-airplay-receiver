@@ -33,14 +33,21 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Copy OpenSSL dependency
-echo Copying libcrypto-3-x64.dll...
-copy /y "%SCRIPT_DIR%libcrypto-3-x64.dll" "%PLUGIN_DIR%\" >nul
+REM Copy OpenSSL dependency (version-agnostic)
+echo Copying libcrypto DLL...
+copy /y "%SCRIPT_DIR%libcrypto-*.dll" "%PLUGIN_DIR%\" >nul
 if errorlevel 1 (
-    echo ERROR: Failed to copy libcrypto-3-x64.dll
+    echo ERROR: Failed to copy libcrypto DLL
     pause
     exit /b 1
 )
+
+REM Open firewall for AirPlay (audio arrives as inbound UDP)
+echo Adding firewall rules...
+netsh advfirewall firewall delete rule name="OBS AirPlay Receiver (UDP)" >nul 2>&1
+netsh advfirewall firewall delete rule name="OBS AirPlay Receiver (TCP)" >nul 2>&1
+netsh advfirewall firewall add rule name="OBS AirPlay Receiver (UDP)" dir=in action=allow protocol=UDP localport=6000-6001,7011 >nul
+netsh advfirewall firewall add rule name="OBS AirPlay Receiver (TCP)" dir=in action=allow protocol=TCP localport=7000,7100 >nul
 
 echo.
 echo ============================================
