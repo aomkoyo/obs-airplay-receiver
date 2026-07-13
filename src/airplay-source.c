@@ -326,10 +326,10 @@ static void cb_video_report_size(void *cls, float *ws, float *hs,
 static void cb_log(void *cls, int level, const char *msg)
 {
 	(void)cls;
-	/* map DEBUG to LOG_INFO too - OBS drops LOG_DEBUG from its log file */
-	int obs_level = LOG_INFO;
+	int obs_level = LOG_DEBUG;
 	if (level <= LOGGER_ERR) obs_level = LOG_ERROR;
 	else if (level <= LOGGER_WARNING) obs_level = LOG_WARNING;
+	else if (level <= LOGGER_INFO) obs_level = LOG_INFO;
 	blog(obs_level, "[AirPlay-UxPlay] %s", msg);
 }
 
@@ -366,9 +366,7 @@ static bool start_server(struct airplay_source *ctx)
 	}
 
 	raop_set_log_callback(ctx->raop, cb_log, NULL);
-	/* ponytail: DEBUG for field diagnosis of the no-audio bug; drop back
-	 * to LOGGER_INFO once iPhone audio is confirmed working */
-	raop_set_log_level(ctx->raop, LOGGER_DEBUG);
+	raop_set_log_level(ctx->raop, LOGGER_INFO);
 
 	/* MAC address - random to avoid exposing the real adapter MAC;
 	 * also seeds the pairing key generation in raop_init2 */
