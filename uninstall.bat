@@ -29,6 +29,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Removing firewall rules...
+netsh advfirewall firewall delete rule name="OBS AirPlay Receiver (UDP)" >nul 2>&1
+netsh advfirewall firewall delete rule name="OBS AirPlay Receiver (TCP)" >nul 2>&1
+
 echo.
 echo ============================================
 echo Uninstall successful!

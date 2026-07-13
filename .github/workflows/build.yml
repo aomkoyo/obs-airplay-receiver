@@ -26,11 +26,11 @@ jobs:
         shell: bash
         run: mkdir -p deps
 
-      - name: Clone UxPlay (mika314/obs-airplay)
+      - name: Clone UxPlay v1.73.6
         shell: bash
         run: |
-          git clone --depth 1 --recurse-submodules \
-            https://github.com/mika314/obs-airplay.git deps/mika-obs-airplay
+          git clone --depth 1 --branch v1.73.6 \
+            https://github.com/FDH2/UxPlay.git deps/UxPlay
 
       - name: Download OBS Studio SDK 32.1.1
         shell: bash
@@ -200,17 +200,7 @@ jobs:
               pthread_cond_timedwait
           EOFDEF
 
-          cat > deps/dnssd.def << 'EOFDEF'
-          LIBRARY dnssd
-          EXPORTS
-              DNSServiceRegister
-              DNSServiceRefDeallocate
-              TXTRecordCreate
-              TXTRecordDeallocate
-              TXTRecordSetValue
-              TXTRecordGetLength
-              TXTRecordGetBytesPtr
-          EOFDEF
+          # dnssd.dll is loaded dynamically by UxPlay 1.73's dnssd.c - no import lib needed
 
           mkdir -p deps/obs-ffmpeg-libs
 
@@ -265,7 +255,6 @@ jobs:
         run: |
           lib /def:deps\obs.def /out:deps\obs.lib /machine:x64
           lib /def:deps\w32-pthreads.def /out:deps\w32-pthreads.lib /machine:x64
-          lib /def:deps\dnssd.def /out:deps\dnssd.lib /machine:x64
           for %%f in (avcodec avutil swscale swresample) do (
             lib /def:deps\%%f.def /out:deps\obs-ffmpeg-libs\%%f.lib /machine:x64
           )
@@ -286,19 +275,23 @@ jobs:
       - name: Apply UxPlay Windows patches and create build config
         shell: bash
         run: |
-          UXLIB="deps/mika-obs-airplay/UxPlay/lib"
+          UXLIB="deps/UxPlay/lib"
 
-          # Patch compat.h - add winsock2, gettimeofday, remove snprintf macro
+          # Patch compat.h - add winsock2, clock_gettime shim (MSVC), remove snprintf macro
           sed -i 's/#include <ws2tcpip.h>/#include <winsock2.h>\n#include <ws2tcpip.h>/' "$UXLIB/compat.h"
           sed -i '/#ifndef snprintf/,/#endif/d' "$UXLIB/compat.h"
-          # Add gettimeofday after windows.h include
-          sed -i '/#include <windows.h>/a #include <pthread.h>\nstatic __inline int gettimeofday(struct timeval *tv, void *tz) { FILETIME ft; ULARGE_INTEGER ui; GetSystemTimeAsFileTime(\&ft); ui.LowPart=ft.dwLowDateTime; ui.HighPart=ft.dwHighDateTime; ui.QuadPart-=116444736000000000ULL; tv->tv_sec=(long)(ui.QuadPart/10000000ULL); tv->tv_usec=(long)((ui.QuadPart%10000000ULL)/10); (void)tz; return 0; }' "$UXLIB/compat.h"
+          # clock_gettime shim: raop_ntp.c only uses CLOCK_REALTIME, which
+          # timespec_get(TIME_UTC) provides on MSVC (UCRT). Re-audit if a
+          # future UxPlay bump starts using CLOCK_MONOTONIC.
+          sed -i '/#include <windows.h>/a #include <time.h>\n#ifndef CLOCK_REALTIME\n#define CLOCK_REALTIME 0\n#define clock_gettime(clk, ts) timespec_get((ts), TIME_UTC)\n#endif' "$UXLIB/compat.h"
 
-          # Patch threads.h - use w32-pthreads
+          # Patch threads.h - Windows branch for w32-pthreads (no unistd.h/usleep
+          # on MSVC; plain pthread_create since w32-pthreads pthread_t is a struct
+          # and upstream's "handle = 0" failure marker would not compile)
           cat > "$UXLIB/threads.h" << 'THEOF'
           #ifndef THREADS_H
           #define THREADS_H
-          #if defined(WIN32)
+          #if defined(WIN32) || defined(_WIN32)
           #include <windows.h>
           #include <pthread.h>
           #define sleepms(x) Sleep(x)
@@ -323,64 +316,29 @@ jobs:
           #endif
           THEOF
 
-          # Patch byteutils.c - write a completely new header section
-          cat > /tmp/byteutils_header.txt << 'BHEOF'
-          #include <time.h>
-          #if defined(WIN32) || defined(_WIN32)
-          #include <winsock2.h>
-          #include <stdlib.h>
-          #ifndef htonll
-          #define htonll(x) _byteswap_uint64(x)
-          #endif
-          #ifndef ntohll
-          #define ntohll(x) _byteswap_uint64(x)
-          #endif
-          #else
-          #include <netinet/in.h>
-          #ifndef htonll
-          #ifdef SYS_ENDIAN_H
-          #include <sys/endian.h>
-          #else
-          #include <endian.h>
-          #endif
-          #define htonll(x) htobe64(x)
-          #define ntohll(x) be64toh(x)
-          #endif
-          #endif
-          #include "byteutils.h"
-          BHEOF
-          # Remove everything from start to "// The functions" line, then prepend new header
-          sed -n '/\/\/ The functions/,$p' "$UXLIB/byteutils.c" > /tmp/byteutils_body.txt
-          cat /tmp/byteutils_header.txt /tmp/byteutils_body.txt > "$UXLIB/byteutils.c"
+          # byteutils.c, raop_rtp_mirror.c, raop_ntp.c are Windows-portable
+          # in UxPlay 1.73.6 - no patches needed.
 
-          # Patch raop_rtp_mirror.c
-          sed -i 's|#include <netinet/tcp.h>|#if defined(WIN32)\n#include <winsock2.h>\n#define SOL_TCP IPPROTO_TCP\n#else\n#include <netinet/tcp.h>\n#endif|' "$UXLIB/raop_rtp_mirror.c"
+          # Patch dnssd.c - no system dns_sd.h on Windows; enable the local
+          # TXTRecordRef typedef (single "#ifndef _WIN32" in the file)
+          sed -i 's|^#include <dns_sd.h>|#if !defined(_WIN32)\n#include <dns_sd.h>\n#endif|' "$UXLIB/dnssd.c"
+          sed -i 's|^#ifndef _WIN32$|#if 1|' "$UXLIB/dnssd.c"
 
-          # Patch raop_ntp.c - clock_gettime and ioctl
-          sed -i 's|clock_gettime(CLOCK_REALTIME, \&time);|gettimeofday(\&time, NULL);|' "$UXLIB/raop_ntp.c"
-          sed -i 's|struct timespec time;|struct timeval time;|' "$UXLIB/raop_ntp.c"
-          sed -i 's|time.tv_nsec / 1000|time.tv_usec|' "$UXLIB/raop_ntp.c"
-          sed -i 's|while (ioctl(fd, FIONREAD, \&bytes_available)|#if defined(WIN32)\n    while (ioctlsocket(fd, FIONREAD, (u_long *)\&bytes_available)|' "$UXLIB/raop_ntp.c"
-          sed -i '/ioctlsocket.*FIONREAD/a #else\n    while (ioctl(fd, FIONREAD, \&bytes_available) == 0 \&\& bytes_available > 0)\n#endif' "$UXLIB/raop_ntp.c" || true
-
-          # Patch dnssd.c - don't include system dns_sd.h
-          sed -i 's|^#include <dns_sd.h>|#if !defined(WIN32)\n#include <dns_sd.h>\n#endif|' "$UXLIB/dnssd.c"
-
-          # Patch httpd.c - add MUTEX_CREATE
-          sed -i '/httpd->joined = 1;/a\    MUTEX_CREATE(httpd->run_mutex);' "$UXLIB/httpd.c"
+          # Patch httpd.c - init run_mutex (first match only: the second
+          # "joined = 1" is inside a locked region at thread exit)
+          sed -i '0,/httpd->joined = 1;/s//httpd->joined = 1;\n    MUTEX_CREATE(httpd->run_mutex);/' "$UXLIB/httpd.c"
 
           # Create uxplay-build CMakeLists.txt
           mkdir -p deps/uxplay-build
           cat > deps/uxplay-build/CMakeLists.txt << 'CMEOF'
           cmake_minimum_required(VERSION 3.16)
           project(uxplay-airplay C)
-          set(UXPLAY_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../mika-obs-airplay/UxPlay/lib")
+          set(UXPLAY_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../UxPlay/lib")
           set(LIBPLIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libplist-2.7.0")
           if(NOT DEFINED OPENSSL_DIR)
               set(OPENSSL_DIR "C:/Program Files/OpenSSL")
           endif()
           set(W32_PTHREADS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../obs-sdk/obs-studio-32.1.1/deps/w32-pthreads")
-          set(DNSSD_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../dnssd.lib")
           aux_source_directory(${UXPLAY_LIB}/playfair playfair_src)
           add_library(playfair STATIC ${playfair_src})
           target_include_directories(playfair PUBLIC ${UXPLAY_LIB}/playfair)
@@ -396,12 +354,13 @@ jobs:
               target_compile_options(llhttp PRIVATE /wd4244 /wd4267 /wd4996)
           endif()
           set(AIRPLAY_SOURCES
-              ${UXPLAY_LIB}/byteutils.c ${UXPLAY_LIB}/crypto.c ${UXPLAY_LIB}/dnssd.c
-              ${UXPLAY_LIB}/fairplay_playfair.c ${UXPLAY_LIB}/http_request.c
-              ${UXPLAY_LIB}/http_response.c ${UXPLAY_LIB}/httpd.c ${UXPLAY_LIB}/logger.c
-              ${UXPLAY_LIB}/mirror_buffer.c ${UXPLAY_LIB}/netutils.c ${UXPLAY_LIB}/pairing.c
-              ${UXPLAY_LIB}/raop.c ${UXPLAY_LIB}/raop_buffer.c ${UXPLAY_LIB}/raop_ntp.c
-              ${UXPLAY_LIB}/raop_rtp.c ${UXPLAY_LIB}/raop_rtp_mirror.c ${UXPLAY_LIB}/utils.c
+              ${UXPLAY_LIB}/airplay_video.c ${UXPLAY_LIB}/byteutils.c ${UXPLAY_LIB}/compat.c
+              ${UXPLAY_LIB}/crypto.c ${UXPLAY_LIB}/dnssd.c ${UXPLAY_LIB}/fairplay_playfair.c
+              ${UXPLAY_LIB}/http_request.c ${UXPLAY_LIB}/http_response.c ${UXPLAY_LIB}/httpd.c
+              ${UXPLAY_LIB}/logger.c ${UXPLAY_LIB}/mirror_buffer.c ${UXPLAY_LIB}/netutils.c
+              ${UXPLAY_LIB}/pairing.c ${UXPLAY_LIB}/raop.c ${UXPLAY_LIB}/raop_buffer.c
+              ${UXPLAY_LIB}/raop_ntp.c ${UXPLAY_LIB}/raop_rtp.c ${UXPLAY_LIB}/raop_rtp_mirror.c
+              ${UXPLAY_LIB}/srp.c ${UXPLAY_LIB}/utils.c
           )
           add_library(airplay STATIC ${AIRPLAY_SOURCES})
           target_include_directories(airplay PUBLIC
@@ -411,6 +370,7 @@ jobs:
           target_compile_definitions(airplay PUBLIC
               WIN32 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE
               WIN32_LEAN_AND_MEAN LIBPLIST_STATIC OPENSSL_API_COMPAT=0x10101000L
+              PLIST_210 PLIST_230
           )
           if(MSVC)
               target_compile_options(airplay PRIVATE /wd4244 /wd4267 /wd4996 /wd4018 /wd4146 /wd4005 /wd4133)
@@ -424,7 +384,7 @@ jobs:
           message(STATUS "OpenSSL crypto lib: ${OPENSSL_CRYPTO_LIB}")
           target_link_libraries(airplay PUBLIC playfair llhttp
               ${LIBPLIST_DIR}/build/plist.lib ${OPENSSL_CRYPTO_LIB}
-              ${DNSSD_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/../w32-pthreads.lib
+              ${CMAKE_CURRENT_SOURCE_DIR}/../w32-pthreads.lib
               ws2_32 iphlpapi
           )
           CMEOF

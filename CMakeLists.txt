@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-project(obs-airplay-receiver VERSION 2.0.1 LANGUAGES C)
+project(obs-airplay-receiver VERSION 2.1.0 LANGUAGES C)
 
 # --- Paths ---
 set(DEPS_DIR "${CMAKE_SOURCE_DIR}/deps")
 
 # UxPlay built libs
 set(UXPLAY_BUILD_DIR "${DEPS_DIR}/uxplay-build/build")
-set(UXPLAY_LIB_DIR "${DEPS_DIR}/mika-obs-airplay/UxPlay/lib")
+set(UXPLAY_LIB_DIR "${DEPS_DIR}/UxPlay/lib")
 
 # OBS headers
 set(OBS_SRC_DIR "${DEPS_DIR}/obs-sdk/obs-studio-32.1.1")
@@ -91,11 +91,10 @@ target_link_libraries(obs-airplay-receiver PRIVATE
     avcodec avutil swscale swresample
 )
 
-# Windows
+# Windows (dnssd.dll is loaded dynamically by UxPlay's dnssd.c at runtime)
 target_link_libraries(obs-airplay-receiver PRIVATE
     ws2_32 iphlpapi
     ${DEPS_DIR}/w32-pthreads.lib
-    ${DEPS_DIR}/dnssd.lib
 )
 
 target_compile_definitions(obs-airplay-receiver PRIVATE

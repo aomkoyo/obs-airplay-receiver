@@ -1,12 +1,12 @@
 [Setup]
 AppName=OBS AirPlay Receiver
-AppVersion=2.0.1
+AppVersion=2.1.0
 AppPublisher=aomkoyo
 AppPublisherURL=https://github.com/aomkoyo/obs-airplay-receiver
 DefaultDirName={commonappdata}\obs-studio\plugins\obs-airplay-receiver
 DirExistsWarning=no
 OutputDir=.
-OutputBaseFilename=OBS-AirPlay-Receiver-Setup-v2.0.1
+OutputBaseFilename=OBS-AirPlay-Receiver-Setup-v2.1.0
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
@@ -56,6 +56,15 @@ procedure InitializeWizard;
 begin
   WizardForm.DirEdit.Text := FindOBSPluginDir;
 end;
+
+[Run]
+; AirPlay audio arrives as inbound UDP; open the plugin's fixed ports
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""OBS AirPlay Receiver (UDP)"" dir=in action=allow protocol=UDP localport=6000-6001,7011"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""OBS AirPlay Receiver (TCP)"" dir=in action=allow protocol=TCP localport=7000,7100"; Flags: runhidden
+
+[UninstallRun]
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""OBS AirPlay Receiver (UDP)"""; Flags: runhidden; RunOnceId: "DelFwUdp"
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""OBS AirPlay Receiver (TCP)"""; Flags: runhidden; RunOnceId: "DelFwTcp"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
