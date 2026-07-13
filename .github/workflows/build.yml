@@ -280,10 +280,12 @@ jobs:
           # Patch compat.h - add winsock2, clock_gettime shim (MSVC), remove snprintf macro
           sed -i 's/#include <ws2tcpip.h>/#include <winsock2.h>\n#include <ws2tcpip.h>/' "$UXLIB/compat.h"
           sed -i '/#ifndef snprintf/,/#endif/d' "$UXLIB/compat.h"
-          # clock_gettime shim: raop_ntp.c only uses CLOCK_REALTIME, which
-          # timespec_get(TIME_UTC) provides on MSVC (UCRT). Re-audit if a
-          # future UxPlay bump starts using CLOCK_MONOTONIC.
-          sed -i '/#include <windows.h>/a #include <time.h>\n#ifndef CLOCK_REALTIME\n#define CLOCK_REALTIME 0\n#define clock_gettime(clk, ts) timespec_get((ts), TIME_UTC)\n#endif' "$UXLIB/compat.h"
+          # clock_gettime shim: raop_ntp.c only uses CLOCK_REALTIME. Use
+          # GetSystemTimePreciseAsFileTime (<1us) - AirPlay NTP sync needs
+          # sub-millisecond wall-clock precision or the sender never locks
+          # its clock and withholds audio. Re-audit if a future UxPlay bump
+          # starts using CLOCK_MONOTONIC.
+          sed -i '/#include <windows.h>/a #include <time.h>\n#ifndef CLOCK_REALTIME\n#define CLOCK_REALTIME 0\nstatic __inline int uxshim_clock_gettime(int clk, struct timespec *ts) { FILETIME ft; ULARGE_INTEGER ui; (void)clk; GetSystemTimePreciseAsFileTime(\&ft); ui.LowPart = ft.dwLowDateTime; ui.HighPart = ft.dwHighDateTime; ui.QuadPart -= 116444736000000000ULL; ts->tv_sec = (long long)(ui.QuadPart / 10000000ULL); ts->tv_nsec = (long)((ui.QuadPart % 10000000ULL) * 100); return 0; }\n#define clock_gettime uxshim_clock_gettime\n#endif' "$UXLIB/compat.h"
 
           # Patch threads.h - Windows branch for w32-pthreads (no unistd.h/usleep
           # on MSVC; plain pthread_create since w32-pthreads pthread_t is a struct
