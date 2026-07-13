@@ -19,7 +19,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "artifact\obs-airplay-receiver.dll"; DestDir: "{app}\bin\64bit"; Flags: ignoreversion
-Source: "artifact\libcrypto-3-x64.dll"; DestDir: "{app}\bin\64bit"; Flags: ignoreversion
+Source: "artifact\libcrypto-*.dll"; DestDir: "{app}\bin\64bit"; Flags: ignoreversion
 Source: "artifact\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Messages]

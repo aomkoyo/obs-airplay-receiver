@@ -416,11 +416,10 @@ jobs:
           mkdir -p artifact
           cp build/obs-airplay-receiver.dll artifact/
           OPENSSL_DIR="${{ steps.openssl.outputs.dir }}"
-          if [ -f "$OPENSSL_DIR/bin/libcrypto-3-x64.dll" ]; then
-            cp "$OPENSSL_DIR/bin/libcrypto-3-x64.dll" artifact/
-          elif [ -f "$OPENSSL_DIR/libcrypto-3-x64.dll" ]; then
-            cp "$OPENSSL_DIR/libcrypto-3-x64.dll" artifact/
-          fi
+          # copy whatever libcrypto version the DLL was linked against
+          cp "$OPENSSL_DIR"/bin/libcrypto-*-x64.dll artifact/ 2>/dev/null ||
+            cp "$OPENSSL_DIR"/libcrypto-*-x64.dll artifact/
+          ls artifact/libcrypto-*-x64.dll || { echo "ERROR: no libcrypto DLL bundled"; exit 1; }
           cp install.bat artifact/
           cp uninstall.bat artifact/
           cp README.md artifact/
