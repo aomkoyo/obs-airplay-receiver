@@ -316,8 +316,10 @@ jobs:
           #endif
           THEOF
 
-          # byteutils.c, raop_rtp_mirror.c, raop_ntp.c are Windows-portable
-          # in UxPlay 1.73.6 - no patches needed.
+          # byteutils.c and raop_ntp.c are Windows-portable in UxPlay 1.73.6.
+          # raop_rtp_mirror.c guards SOL_TCP with defined(IPPROTO_TCP), but on
+          # MSVC IPPROTO_TCP is an enum (not a macro) so the guard never fires
+          sed -i 's|#if !defined(SOL_TCP) && defined(IPPROTO_TCP)|#if !defined(SOL_TCP)|' "$UXLIB/raop_rtp_mirror.c"
 
           # Patch dnssd.c - no system dns_sd.h on Windows; enable the local
           # TXTRecordRef typedef (single "#ifndef _WIN32" in the file)
