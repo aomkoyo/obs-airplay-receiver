@@ -330,6 +330,10 @@ jobs:
           # "joined = 1" is inside a locked region at thread exit)
           sed -i '0,/httpd->joined = 1;/s//httpd->joined = 1;\n    MUTEX_CREATE(httpd->run_mutex);/' "$UXLIB/httpd.c"
 
+          # Diagnostic: count skipped no-data audio markers so the OBS log
+          # proves the audio thread is reading the data socket
+          sed -i 's|/\* this is a "no data" packet \*/|{ static int nodata_count = 0; if ((nodata_count++ % 2000) == 0) logger_log(raop_rtp->logger, LOGGER_INFO, "raop_rtp audio: no-data markers so far: %d", nodata_count); }|' "$UXLIB/raop_rtp.c"
+
           # Create uxplay-build CMakeLists.txt
           mkdir -p deps/uxplay-build
           cat > deps/uxplay-build/CMakeLists.txt << 'CMEOF'
