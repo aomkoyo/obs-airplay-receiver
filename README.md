@@ -22,7 +22,7 @@ An OBS Studio plugin that receives **AirPlay screen mirroring** from Apple devic
 
 - **OBS Studio 30+** (tested with 32.1.1)
 - **Windows 10/11 64-bit**
-- **Apple Bonjour** - Required for mDNS discovery so Apple devices can find the receiver. Install [iTunes](https://www.apple.com/itunes/) or the [Bonjour Print Services](https://support.apple.com/kb/DL999) package.
+- **Apple Bonjour** - Required for mDNS discovery so Apple devices can find the receiver. Install [Bonjour Print Services](https://support.apple.com/kb/DL999) package.
 
 ## Installation
 
